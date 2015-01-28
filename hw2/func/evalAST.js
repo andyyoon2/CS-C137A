@@ -73,6 +73,10 @@ evalMatch = function(args, env) {
       env.keys[pattern[1]] = val;
       return mEval(expr, env);
     } else if (pattern[0] === 'cons') {
+      // Make sure we're matching on a list
+      if (val[0] !== 'cons') {
+        continue;
+      }
       // Recursively call match to bind variable names
       try {
         evalMatch([val[1], pattern[1], 0], env);
