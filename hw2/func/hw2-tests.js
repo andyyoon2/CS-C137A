@@ -86,6 +86,12 @@ tests(
     expected: ['cons', 0, ['cons', 4, ['cons', 8, null]]]
   },
   {
+    name: 'list comprehension filters all',
+    code: 'let list = [1;2;3] in\n' +
+          '[ x * 2 | x <- list, x > 3]',
+    expected: null
+  },
+  {
     name: 'delay and force',
     code: 'let take = fun n s ->\n' +
           '  match n with\n' +
