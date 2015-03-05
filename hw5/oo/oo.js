@@ -7,6 +7,10 @@ function Obj(name, methods, vars, superClass) {
   this.superClass = superClass;
 };
 
+/*function Block(call) {
+  this.call = call;
+}*/
+
 var CT = {};
 var Instances = [];
 
@@ -40,6 +44,26 @@ deep_copy = function(obj) {
   }
   copy.superClass = deep_copy(obj.superClass);
   return copy;
+}
+
+getSuperClassName = function(obj) {
+  // Check for primitives
+  if (obj === null) {
+    return 'Object';
+  } else if (typeof obj === 'boolean') {
+    if (obj === true) {
+      return 'Boolean';
+    } else {
+      return 'Boolean';
+    }
+  } else if (typeof obj === 'number') {
+    return 'Object';
+  } else {
+    if (!obj.superClass.hasOwnProperty('name')) {
+      throw new Error('undefined superclass');
+    }
+    return obj.superClass.name;
+  }
 }
 
 
@@ -207,29 +231,31 @@ OO.declareClass = function(name, superClassName, instVarNames) {
   } else if (!CT.hasOwnProperty(superClassName)) {
     throw new ReferenceError('superClassName ' + superClassName + ' does not exist');
   }
-  var sorted_arr = instVarNames.sort();
-  for (var i = 0; i < sorted_arr.length-1; i++) {
-    if (sorted_arr[i] == sorted_arr[i+1]) {
-      throw new Error('instVarNames has duplicate variable names');
-    }
-  }
-  // Recursively check for duplicate variable names in superclasses
-  var scn = superClassName;
-  while (scn) {
-    if (CT.hasOwnProperty(scn) && CT[scn] != null) {
-      if (dups(instVarNames, Object.keys(CT[scn].vars))) {
-        throw new Error('instVarNames duplicates a variable name in ' + superClassName);
-      }
-      scn = CT[scn].superClass;
-    } else {
-      break;
-    }
-  }
-
-  // Add variable names into vars hash
   var vars = {};
-  for (var i = 0; i < instVarNames.length; i++) {
-    vars[instVarNames[i]] = null;
+  if (instVarNames !== undefined) {
+    var sorted_arr = instVarNames.sort();
+    for (var i = 0; i < sorted_arr.length-1; i++) {
+      if (sorted_arr[i] == sorted_arr[i+1]) {
+        throw new Error('instVarNames has duplicate variable names');
+      }
+    }
+    // Recursively check for duplicate variable names in superclasses
+    var scn = superClassName;
+    while (scn) {
+      if (CT.hasOwnProperty(scn) && CT[scn] != null) {
+        if (dups(instVarNames, Object.keys(CT[scn].vars))) {
+          throw new Error('instVarNames duplicates a variable name in ' + superClassName);
+        }
+        scn = CT[scn].superClass;
+      } else {
+        break;
+      }
+    }
+
+    // Add variable names into vars hash
+    for (var i = 0; i < instVarNames.length; i++) {
+      vars[instVarNames[i]] = null;
+    }
   }
   // Inherit superclass's methods
   var superClassMethods = {};
@@ -286,6 +312,9 @@ OO.send = function() {
     }
   } else if (typeof recv === 'number') {
     receiver = CT['Number'];
+  } else if (typeof recv === 'function') {
+    // {Block}.call(args...)
+    return recv.apply(this, args);
   } else {
     // Any other object
     if (!CT.hasOwnProperty(recv.name)) {
@@ -367,21 +396,31 @@ O.program = function() {
   var asts = Array.prototype.slice.call(arguments);
   console.log(asts);
   var ret = 'OO.initializeCT();\n';
-  ret += translateBody(asts);
+  ret += O.translateBody(asts);
   return ret;
 };
 
 O.classDecl = function (name, superClass, instVarNames) {
-  return 'OO.declareClass(' + name + ', ' + superClass + ', ' + instVarNames + ')';
+  var ret = 'OO.declareClass("' + name + '", "' + superClass + '"';
+  if (instVarNames.length > 0) {
+    ret += ', ["' + instVarNames.join('", "') + '"]';
+  }
+  ret += ')';
+  return ret;
 };
 
 O.methodDecl = function (className, method, args, statements) {
-  var ret = 'OO.declareMethod(' + className + ', ' + method + ', ';
-  // Add function arguments
-  ret += 'function (' + args.join(', ') + ') = ';
+  // Need to enclose class and method name in double quotes
+  var ret = 'OO.declareMethod("' + className + '", "' + method + '", ';
+  // Add function arguments, with _this preceding
+  ret += 'function (_this';
+  if (args.length > 0) {
+    ret += ', ' + args.join(', ');
+  }
+  ret += ') {';
   // Add function body
-  // TODO: ADD HELPER FUNC CALL FOR STATEMENTS
-  ret += O.transAST.call(undefined, statements);
+  ret += O.translateBody(statements);
+  ret += '})';
   return ret;
 };
 
@@ -441,10 +480,13 @@ O.getInstVar = function (x) {
 
 O.new = function () {
   var a = Array.prototype.slice.call(arguments),
-      ret = 'new ' + a[0];
-  for (var i = 1; i < a.length; i++) {
+      ret = 'OO.instantiate("' + a[0] + '"';
 
+  for (var i = 1; i < a.length; i++) {
+    ret += ', ' + O.transAST(a[i]);
   }
+  ret += ')';
+  return ret;
 };
 
 O.send = function () {
@@ -453,12 +495,29 @@ O.send = function () {
       method = a[1],
       args = a.slice(2);
   // Need to enclose method name in double quotes
-  return 'OO.send(' + O.transAST(recv) + ', "' + method + '", ' + O.transAST.apply(undefined, args) + ')';
+  var ret = 'OO.send(' + O.transAST(recv) + ', "' + method + '"';
+  for (var i = 0; i < args.length; i++) {
+    ret += ', ' + O.transAST.call(undefined, args[i]);
+  }
+  ret += ')';
+  return ret;
 };
 
-O.superSend = function () {
-
+O.super = function () {
+  var a = Array.prototype.slice.call(arguments);
+  var method = a[0],
+      args = a.slice(1),
+      ret = 'OO.superSend(getSuperClassName(_this), _this, "' + method + '"';
+  if (args.length > 0) {
+    ret += ', ' + args.join(', ');
+  }
+  ret += ')';
+  return ret;
 };
+
+O.block = function (varNames, statements) {
+  return 'function(' + varNames.join(', ') + ') {return ' + O.translateBody(statements) + '}';
+}
 
 O.transAST = function(ast) {
   // Dispatch to the proper class
