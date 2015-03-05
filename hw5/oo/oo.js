@@ -346,9 +346,121 @@ OO.setInstVar = function(recv, instVarName, value) {
   return value;
 };
 
+
+
 /*
- * Translator
+ * HW5 - Translator
  */
-O.transAST = function(ast) {
-  throw new Error("You're supposed to write your own translator and hook it up to this method.");
+
+O.translateBody = function(asts) {
+  var ret = '';
+  for (var i = 0; i < asts.length; i++) {
+    ret += O.transAST(asts[i]) + ';\n';
+  }
+  return ret;
+}
+
+/*
+ * Define classes for each tag
+ */
+O.program = function() {
+  var asts = Array.prototype.slice.call(arguments);
+  console.log(asts);
+  var ret = 'OO.initializeCT();\n';
+  ret += translateBody(asts);
+  return ret;
 };
+
+O.classDecl = function (name, superClass, instVarNames) {
+  return 'OO.declareClass(' + name + ', ' + superClass + ', ' + instVarNames + ')';
+};
+
+O.methodDecl = function (className, method, args, statements) {
+  var ret = 'OO.declareMethod(' + className + ', ' + method + ', ';
+  // Add function arguments
+  ret += 'function (' + args.join(', ') + ') = ';
+  // Add function body
+  // TODO: ADD HELPER FUNC CALL FOR STATEMENTS
+  ret += O.transAST.call(undefined, statements);
+  return ret;
+};
+
+O.varDecls = function () {
+  var decls = Array.prototype.slice.call(arguments),
+      ret = 'var ', key, val;
+  for (var i = 0; i < decls.length; i++) {
+    key = decls[i][0];
+    val = O.transAST(decls[i][1]);
+    ret += key + ' = ' + val;
+    if (i !== decls.length-1) {
+      ret += ', ';
+    }
+  }
+  return ret;
+};
+
+O.return = function (e) {
+  return 'return ' + O.transAST(e);
+};
+
+O.setVar = function (x, e) {
+  return x + ' = ' + O.transAST(e);
+};
+
+O.setInstVar = function (x, e) {
+  return 'this.' + x + ' = ' + O.transAST(e);
+};
+
+O.exprStmt = function (ast) {
+  return O.transAST(ast);
+};
+
+O.null = function () {
+  return 'null';
+};
+
+O.true = function () {
+  return 'true';
+};
+
+O.false = function () {
+  return 'false';
+};
+
+O.number = function (x) {
+  return x.toString();
+};
+
+O.getVar = function (x) {
+  return x;
+};
+
+O.getInstVar = function (x) {
+  return 'this.' + x;
+};
+
+O.new = function () {
+  var a = Array.prototype.slice.call(arguments),
+      ret = 'new ' + a[0];
+  for (var i = 1; i < a.length; i++) {
+
+  }
+};
+
+O.send = function () {
+  var a = Array.prototype.slice.call(arguments);
+  var recv = a[0],
+      method = a[1],
+      args = a.slice(2);
+  // Need to enclose method name in double quotes
+  return 'OO.send(' + O.transAST(recv) + ', "' + method + '", ' + O.transAST.apply(undefined, args) + ')';
+};
+
+O.superSend = function () {
+
+};
+
+O.transAST = function(ast) {
+  // Dispatch to the proper class
+  return O[ast[0]].apply(undefined, ast.slice(1));
+}
