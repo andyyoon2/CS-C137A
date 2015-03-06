@@ -1,3 +1,9 @@
+/*
+Homework 5:
+  Blocks are not yet fully supported.
+  Nonlocal returns aren't yet implemented and blocks naively return the result of their last statement
+*/
+
 var OO = {};
 
 function Obj(name, methods, vars, superClass) {
@@ -516,7 +522,20 @@ O.super = function () {
 };
 
 O.block = function (varNames, statements) {
-  return 'function(' + varNames.join(', ') + ') {return ' + O.translateBody(statements) + '}';
+  var ret = 'function(' + varNames.join(', ') + ') {';
+  var funcBody = '';
+  for (var i = 0; i < statements.length; i++) {
+    if (i === statements.length-1 && statements[i][0] !== 'return') {
+      funcBody += 'return ';
+    }
+    funcBody += O.transAST(statements[i]) + ';\n';
+  }
+  ret += funcBody + '}';
+  return ret;
+}
+
+O.this = function () {
+  return '_this';
 }
 
 O.transAST = function(ast) {
