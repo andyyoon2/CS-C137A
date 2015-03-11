@@ -5,7 +5,7 @@
 
 // Recursively creates a new Clause with fresh variable names (X -> X')
 makeFreshClause = function(clause) {
-  if (clause.args) {
+  if (clause.args.length > 0) {
     var argsCopy = [];
     for (var i = 0; i < clause.args.length; i++) {
       if (clause.args[i] instanceof Var) {
@@ -30,7 +30,7 @@ Rule.prototype.makeCopyWithFreshVarNames = function() {
 };
 
 Clause.prototype.rewrite = function(subst) {
-  if (this.args) {
+  if (this.args.length > 0) {
     var argsCopy = [];
     for (var i = 0; i < this.args.length; i++) {
       argsCopy.push(this.args[i].rewrite(subst));
@@ -54,7 +54,29 @@ Var.prototype.rewrite = function(subst) {
 // -----------------------------------------------------------------------------
 
 Subst.prototype.unify = function(term1, term2) {
-  throw new TODO("Subst.prototype.unify not implemented");
+  var t1 = term1.rewrite(this),
+      t2 = term2.rewrite(this);
+  if (t1 instanceof Var || t2 instanceof Var) {
+    if (t1 instanceof Var) {
+      return this.bind(t1, t2);
+    } else {
+      return this.bind(t2, t1);
+    }
+  } else {
+    // both terms are Clauses
+    if (t1.name !== t2.name) {
+      throw new Error("unification failed");
+    } else {
+      console.log(t1); console.log(t2);
+      if (t1.args.length > 0 && t2.args.length > 0) {
+        var shorterLength = t1.args.length < t2.args.length ? t1.args.length : t2.args.length;
+        for (var i = 0; i < shorterLength; i++) {
+          this.unify(t1.args[i], t2.args[i]);
+        }
+      }
+      return this;
+    }
+  }
 };
 
 // -----------------------------------------------------------------------------
