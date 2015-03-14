@@ -42,8 +42,11 @@ Clause.prototype.rewrite = function(subst) {
 };
 
 Var.prototype.rewrite = function(subst) {
-  if (subst.lookup(this.name)) {
-    return subst.lookup(this.name);
+  var value = subst.lookup(this.name);
+  if (value instanceof Var) {
+    return new Var(value.name);
+  } else if (value instanceof Clause) {
+    return value.rewrite(this);
   } else {
     return new Var(this.name);
   }
@@ -58,24 +61,23 @@ Subst.prototype.unify = function(term1, term2) {
       t2 = term2.rewrite(this);
   if (t1 instanceof Var || t2 instanceof Var) {
     if (t1 instanceof Var) {
-      return this.bind(t1, t2);
+      return this.bind(t1.name, t2);
     } else {
-      return this.bind(t2, t1);
+      return this.bind(t2.name, t1);
     }
   } else {
     // both terms are Clauses
     if (t1.name !== t2.name) {
       throw new Error("unification failed");
     } else {
-      console.log(t1); console.log(t2);
       if (t1.args.length > 0 && t2.args.length > 0) {
         var shorterLength = t1.args.length < t2.args.length ? t1.args.length : t2.args.length;
         for (var i = 0; i < shorterLength; i++) {
           this.unify(t1.args[i], t2.args[i]);
         }
       }
-      return this;
     }
+    return this;
   }
 };
 
@@ -83,7 +85,170 @@ Subst.prototype.unify = function(term1, term2) {
 // Part III: Program.prototype.solve()
 // -----------------------------------------------------------------------------
 
+refresh = function(rules) {
+  var freshRules = [];
+  for (var i = 0; i < rules.length; i++) {
+    freshRules.push(rules[i].makeCopyWithFreshVarNames());
+  }
+  return freshRules;
+}
+
 Program.prototype.solve = function() {
-  throw new TODO("Program.prototype.solve not implemented");
+  // Save state info
+  var root = {
+    backtrack: null,
+    rules: refresh(this.rules),
+    goals: this.query,
+    subst: new Subst()
+  };
+  this.curr_state = root;
+  return this;
 };
 
+Program.prototype.next = function() {
+  if (this.curr_state === null) {
+    // No more possibilities
+    return false;
+  }
+  if (this.curr_state.rules.length === 0) {
+    // No more rules to check, backtrack!
+    this.curr_state = this.curr_state.backtrack;
+    return this.next();
+  }
+  if (this.curr_state.backtrack === null) {
+    // We've reached the root, start a new subst
+    this.curr_state.subst = new Subst();
+  }
+
+  // Unify first goal & rule
+  try {
+    this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[0], this.curr_state.rules[0].head);
+  } catch (e) {
+    // Check the next rule
+    this.curr_state.rules = this.curr_state.rules.slice(1);
+    return this.next();
+  }
+
+  // Set a backtrack point to current state, removing first rule
+  var rule = this.curr_state.rules.shift();
+  this.curr_state.backtrack = {
+    backtrack: this.curr_state.backtrack,
+    rules: refresh(this.curr_state.rules),
+    goals: this.curr_state.goals
+  }
+
+  // Remove first goal and add RHS of the removed rule to goals if necessary
+  this.curr_state.goals = this.curr_state.goals.slice(1);
+  if (rule.body.length > 0) {
+    this.curr_state.goals.unshift(rule.body);
+  }
+
+  if (this.curr_state.goals.length === 0) {
+    // All done with goals: set curr_state to backtrack and return the substitution
+    var result = this.curr_state.subst;
+    this.curr_state = this.curr_state.backtrack;
+    return result;
+  } else {
+    return this.next();
+  }
+}
+
+Program.prototype.nextKZ = function() {
+  if (this.curr_state === null) {
+    // No more possibilities
+    return false;
+  }
+
+  // Unification
+  this.curr_state.subst = new Subst();
+  for (var i = 0; i < this.curr_state.rules.length; i++) {
+    try {
+      this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[0], this.curr_state.rules[i].head);
+    } catch (e) {
+      continue;
+    }
+
+    if (this.curr_state.rules[i].body.length > 0) {
+      // Add clause body to goals
+      this.curr_state.goals.unshift(this.curr_state.rules[i].body);
+    }
+    // an atom
+    if (this.curr_state.goals.length > 1) {
+      // Still have more goals to check, so save a backtrack point
+      this.curr_state.backtrack = {
+        backtrack: this.curr_state.backtrack,
+        rules: refresh(this.curr_state.rules).slice(1),
+        goals: this.curr_state.goals
+      }
+    }
+
+    // Remove the goal we just checked
+    var new_goals = this.curr_state.goals.slice(1);
+    if (new_goals.length === 0) {
+      // All done with goals
+      /*if (i < this.curr_state.rules.length-1) {
+        // Still have more rules to check, add a backtrack point
+        this.curr_state.backtrack = {
+          backtrack: this.curr_state.backtrack,
+          rules: refresh(this.curr_state.rules.slice(1)),
+          goals: this.curr_state.goals
+        }
+      }*/
+      // Return the substitution
+      var s = this.curr_state.subst;
+      this.curr_state = this.curr_state.backtrack;
+      return s;
+    } else {
+      this.curr_state.goals = new_goals;
+      continue;
+    }
+  }
+  // Out of rules
+  this.curr_state = this.curr_state.backtrack;
+  return this.next();
+
+/*old
+  // Unification
+  this.curr_state.subst = new Subst();
+  for (var i = 0; i < this.curr_state.goals.length; i++) {
+    if (this.curr_state.rule_index === this.curr_state.rules.length) {
+      // No more rules to check, so backtrack
+      this.curr_state = this.curr_state.backtrack;
+      return this.next();
+    }
+    try {
+      this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[i], this.curr_state.rules[this.curr_state.rule_index].head);
+      if (this.curr_state.rules[this.curr_state.rule_index].body.length > 0) {
+        // Add clause body to goals
+      } else {
+        // an atom
+        this.curr_state.rule_index++;
+        //WRONG
+        return this.curr_state.subst;
+
+        // We have more goals to check, save a backtrack point
+        if (i < this.curr_state.goals.length-1) {
+          this.curr_state.backtrack = {
+            backtrack: this.curr_state.backtrack,
+            rules: this.refresh(),
+            goals: this.curr_state.goals,
+          }
+        }
+      }
+    } catch (e) {
+      // Check the next rule
+      this.curr_state.rule_index++;
+      i--;
+    }
+  }
+
+  // Finished one goal
+  this.curr_state.goals.shift();
+
+  if (this.curr_state.goals.length === 0) {
+    // All done with goals, return the substitution
+    var s = this.curr_state.subst;
+    this.curr_state = this.curr_state.backtrack;
+    return s;
+  }*/
+}
