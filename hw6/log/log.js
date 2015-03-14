@@ -43,13 +43,18 @@ Clause.prototype.rewrite = function(subst) {
 
 Var.prototype.rewrite = function(subst) {
   var value = subst.lookup(this.name);
-  if (value instanceof Var) {
-    return new Var(value.name);
-  } else if (value instanceof Clause) {
-    return value.rewrite(this);
-  } else {
-    return new Var(this.name);
+  if (value) {
+    if (subst.lookup(value.name)) {
+      // Recursive rewrite to get to solved form
+      return subst.lookup(value.name).rewrite(this);
+    }
+    if (value instanceof Var) {
+      return new Var(this.name);
+    } else {
+      return value.rewrite(this);
+    }
   }
+  return this;
 };
 
 // -----------------------------------------------------------------------------
@@ -98,8 +103,7 @@ Program.prototype.solve = function() {
   var root = {
     backtrack: null,
     rules: refresh(this.rules),
-    goals: this.query,
-    subst: new Subst()
+    goals: this.query
   };
   this.curr_state = root;
   return this;
@@ -125,7 +129,7 @@ Program.prototype.next = function() {
     this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[0], this.curr_state.rules[0].head);
   } catch (e) {
     // Check the next rule
-    this.curr_state.rules = this.curr_state.rules.slice(1);
+    this.curr_state.rules.shift();
     return this.next();
   }
 
@@ -140,7 +144,8 @@ Program.prototype.next = function() {
   // Remove first goal and add RHS of the removed rule to goals if necessary
   this.curr_state.goals = this.curr_state.goals.slice(1);
   if (rule.body.length > 0) {
-    this.curr_state.goals.unshift(rule.body);
+    this.curr_state.goals = rule.body.concat(this.curr_state.goals);
+    this.curr_state.rules = refresh(this.rules);
   }
 
   if (this.curr_state.goals.length === 0) {
@@ -151,104 +156,4 @@ Program.prototype.next = function() {
   } else {
     return this.next();
   }
-}
-
-Program.prototype.nextKZ = function() {
-  if (this.curr_state === null) {
-    // No more possibilities
-    return false;
-  }
-
-  // Unification
-  this.curr_state.subst = new Subst();
-  for (var i = 0; i < this.curr_state.rules.length; i++) {
-    try {
-      this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[0], this.curr_state.rules[i].head);
-    } catch (e) {
-      continue;
-    }
-
-    if (this.curr_state.rules[i].body.length > 0) {
-      // Add clause body to goals
-      this.curr_state.goals.unshift(this.curr_state.rules[i].body);
-    }
-    // an atom
-    if (this.curr_state.goals.length > 1) {
-      // Still have more goals to check, so save a backtrack point
-      this.curr_state.backtrack = {
-        backtrack: this.curr_state.backtrack,
-        rules: refresh(this.curr_state.rules).slice(1),
-        goals: this.curr_state.goals
-      }
-    }
-
-    // Remove the goal we just checked
-    var new_goals = this.curr_state.goals.slice(1);
-    if (new_goals.length === 0) {
-      // All done with goals
-      /*if (i < this.curr_state.rules.length-1) {
-        // Still have more rules to check, add a backtrack point
-        this.curr_state.backtrack = {
-          backtrack: this.curr_state.backtrack,
-          rules: refresh(this.curr_state.rules.slice(1)),
-          goals: this.curr_state.goals
-        }
-      }*/
-      // Return the substitution
-      var s = this.curr_state.subst;
-      this.curr_state = this.curr_state.backtrack;
-      return s;
-    } else {
-      this.curr_state.goals = new_goals;
-      continue;
-    }
-  }
-  // Out of rules
-  this.curr_state = this.curr_state.backtrack;
-  return this.next();
-
-/*old
-  // Unification
-  this.curr_state.subst = new Subst();
-  for (var i = 0; i < this.curr_state.goals.length; i++) {
-    if (this.curr_state.rule_index === this.curr_state.rules.length) {
-      // No more rules to check, so backtrack
-      this.curr_state = this.curr_state.backtrack;
-      return this.next();
-    }
-    try {
-      this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[i], this.curr_state.rules[this.curr_state.rule_index].head);
-      if (this.curr_state.rules[this.curr_state.rule_index].body.length > 0) {
-        // Add clause body to goals
-      } else {
-        // an atom
-        this.curr_state.rule_index++;
-        //WRONG
-        return this.curr_state.subst;
-
-        // We have more goals to check, save a backtrack point
-        if (i < this.curr_state.goals.length-1) {
-          this.curr_state.backtrack = {
-            backtrack: this.curr_state.backtrack,
-            rules: this.refresh(),
-            goals: this.curr_state.goals,
-          }
-        }
-      }
-    } catch (e) {
-      // Check the next rule
-      this.curr_state.rule_index++;
-      i--;
-    }
-  }
-
-  // Finished one goal
-  this.curr_state.goals.shift();
-
-  if (this.curr_state.goals.length === 0) {
-    // All done with goals, return the substitution
-    var s = this.curr_state.subst;
-    this.curr_state = this.curr_state.backtrack;
-    return s;
-  }*/
 }
