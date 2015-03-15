@@ -46,12 +46,12 @@ Var.prototype.rewrite = function(subst) {
   if (value) {
     if (subst.lookup(value.name)) {
       // Recursive rewrite to get to solved form
-      return subst.lookup(value.name).rewrite(this);
+      return subst.lookup(value.name).rewrite(subst);
     }
     if (value instanceof Var) {
       return new Var(this.name);
     } else {
-      return value.rewrite(this);
+      return value.rewrite(subst);
     }
   }
   return this;
@@ -66,9 +66,9 @@ Subst.prototype.unify = function(term1, term2) {
       t2 = term2.rewrite(this);
   if (t1 instanceof Var || t2 instanceof Var) {
     if (t1 instanceof Var) {
-      return this.bind(t1.name, t2);
+      this.bind(t1.name, t2);
     } else {
-      return this.bind(t2.name, t1);
+      this.bind(t2.name, t1);
     }
   } else {
     // both terms are Clauses
@@ -82,8 +82,12 @@ Subst.prototype.unify = function(term1, term2) {
         }
       }
     }
-    return this;
   }
+  // Solved form
+  for (i in this.bindings) {
+    this.bind(i, this.bindings[i].rewrite(this));
+  }
+  return this;
 };
 
 // -----------------------------------------------------------------------------
@@ -98,12 +102,22 @@ refresh = function(rules) {
   return freshRules;
 }
 
+rewriteAll = function(goals, subst) {
+  var rewritten = [];
+  for (var i = 0; i < goals.length; i++) {
+    rewritten.push(goals[i].rewrite(subst));
+  }
+  return rewritten;
+}
+
 Program.prototype.solve = function() {
   // Save state info
   var root = {
     backtrack: null,
     rules: refresh(this.rules),
-    goals: this.query
+    goals: this.query,
+    rule_index: 0,
+    subst: new Subst()
   };
   this.curr_state = root;
   return this;
@@ -114,46 +128,54 @@ Program.prototype.next = function() {
     // No more possibilities
     return false;
   }
-  if (this.curr_state.rules.length === 0) {
+  if (this.curr_state.rule_index === this.curr_state.rules.length) {
     // No more rules to check, backtrack!
     this.curr_state = this.curr_state.backtrack;
     return this.next();
   }
-  if (this.curr_state.backtrack === null) {
-    // We've reached the root, start a new subst
-    this.curr_state.subst = new Subst();
-  }
 
   // Unify first goal & rule
+  var subst = this.curr_state.subst.clone();
   try {
-    this.curr_state.subst = this.curr_state.subst.unify(this.curr_state.goals[0], this.curr_state.rules[0].head);
+    subst = subst.unify(this.curr_state.goals[0], this.curr_state.rules[this.curr_state.rule_index].head);
   } catch (e) {
     // Check the next rule
-    this.curr_state.rules.shift();
+    this.curr_state.rule_index++;
     return this.next();
   }
 
-  // Set a backtrack point to current state, removing first rule
-  var rule = this.curr_state.rules.shift();
-  this.curr_state.backtrack = {
-    backtrack: this.curr_state.backtrack,
-    rules: refresh(this.curr_state.rules),
-    goals: this.curr_state.goals
+  var next_goals = this.curr_state.goals.slice(1);
+  if (this.curr_state.rules[this.curr_state.rule_index].body.length > 0) {
+    // Replace current goal with RHS of current rule
+    next_goals = this.curr_state.rules[this.curr_state.rule_index].body.concat(next_goals);
   }
 
-  // Remove first goal and add RHS of the removed rule to goals if necessary
-  this.curr_state.goals = this.curr_state.goals.slice(1);
-  if (rule.body.length > 0) {
-    this.curr_state.goals = rule.body.concat(this.curr_state.goals);
-    this.curr_state.rules = refresh(this.rules);
-  }
-
-  if (this.curr_state.goals.length === 0) {
-    // All done with goals: set curr_state to backtrack and return the substitution
-    var result = this.curr_state.subst;
-    this.curr_state = this.curr_state.backtrack;
-    return result;
+  if (next_goals.length === 0) {
+    // No other goals to check
+    this.curr_state.rule_index++;
+    if (this.curr_state.rule_index <= this.curr_state.rules.length) {
+      // Still more rules to check
+      return subst;
+    } else {
+      return this.next();
+    }
   } else {
+    // More goals to check: Set a backtrack point
+    var backtrack = {
+      backtrack: this.curr_state.backtrack,
+      rules: this.curr_state.rules,
+      goals: this.curr_state.goals,
+      rule_index: this.curr_state.rule_index+1,
+      subst: this.curr_state.subst
+    }
+    var next_state = {
+      backtrack: backtrack,
+      rules: refresh(this.curr_state.rules),
+      goals: next_goals,
+      rule_index: 0,
+      subst: subst
+    }
+    this.curr_state = next_state;
     return this.next();
   }
 }
